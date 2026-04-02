@@ -90,6 +90,22 @@ def get_expired_remaining(token_data: dict) -> tuple[str, float]:
     return expired_str, remaining
 
 
+def get_expired_remaining_with_status(token_data: dict) -> tuple[str, float, bool]:
+    expired_str = token_data.get("expired", "")
+    if expired_str:
+        remaining = parse_expired_time(expired_str)
+        if remaining != -1:
+            return expired_str, remaining, True
+
+    access_token = token_data.get("access_token", "")
+    if access_token:
+        remaining = get_token_remaining_seconds(access_token)
+        if remaining != -1:
+            return expired_str, remaining, True
+
+    return expired_str, -1, False
+
+
 def brief_response_text(resp, limit=160) -> str:
     try:
         text = (resp.text or "").strip().replace("\n", " ")

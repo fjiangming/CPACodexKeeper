@@ -65,8 +65,10 @@ Each inspection round follows this sequence:
 6. delete the token if usage returns `401` or `402`, meaning the token is invalid or the workspace is deactivated
 7. if a **weekly quota window** exists, use it as the disable / enable source
 8. otherwise fall back to the primary quota window
-9. refresh the token if it is close to expiry
-10. upload the refreshed token payload back to CPA
+9. if the token has **no `refresh_token`** and is already expired, delete it directly
+10. if the token has **no `refresh_token`** and the checked quota reaches the threshold, delete it directly
+11. refresh the token if it is close to expiry
+12. upload the refreshed token payload back to CPA
 
 This process is **round-based with intra-round concurrency**. One full round still completes before the next round starts, but multiple tokens can be inspected concurrently within the same round.
 
@@ -104,6 +106,7 @@ That means:
 
 - disable only when the checked quota reaches 100%
 - re-enable when it drops below 100%
+- but if a token has no `refresh_token`, reaching the threshold deletes it instead of only disabling it
 
 ---
 

@@ -8,7 +8,7 @@ from .logging_utils import ConsoleLogger, TokenLogger
 from .models import MaintainerStats
 from .openai_client import OpenAIClient, parse_usage_info
 from .settings import Settings
-from .utils import format_seconds, get_expired_remaining
+from .utils import format_seconds, get_expired_remaining, get_expired_remaining_with_status
 
 
 class CPACodexKeeper:
@@ -142,23 +142,34 @@ class CPACodexKeeper:
     def _log_token_details(self, token_detail, logger):
         email = token_detail.get("email", "unknown")
         disabled = token_detail.get("disabled", False)
-        expired_str, remaining_seconds = get_expired_remaining(token_detail)
-        remaining_str = format_seconds(remaining_seconds)
+        expired_str, remaining_seconds, expiry_known = get_expired_remaining_with_status(token_detail)
+        remaining_str = format_seconds(remaining_seconds) if expiry_known else "未知"
 
         logger.log("INFO", f"Email: {email}", indent=1)
         logger.log("INFO", f"状态: {'已禁用' if disabled else '正常'}", indent=1)
         logger.log("INFO", f"过期时间: {expired_str or '未知'}", indent=1)
         logger.log("INFO", f"剩余有效期: {remaining_str}", indent=1)
-        return disabled, remaining_seconds, remaining_str
+        return disabled, remaining_seconds, remaining_str, expiry_known
 
-    def _handle_invalid_token(self, name, logger):
-        logger.log("WARN", "Token 无效或 workspace 已停用，准备删除", indent=1)
+    def _has_refresh_token(self, token_detail):
+        return bool((token_detail.get("refresh_token") or "").strip())
+
+    def _delete_token_with_reason(self, name, reason, logger):
+        logger.log("WARN", reason, indent=1)
         if self.delete_token(name, logger=logger):
             logger.log("DELETE", "已删除", indent=1)
             self._inc_stat("dead")
             logger.blank_line()
             return "dead"
         return self._skip_token("删除失败", logger)
+
+    def _handle_invalid_token(self, name, logger):
+        return self._delete_token_with_reason(name, "Token 无效或 workspace 已停用，准备删除", logger)
+
+    def _apply_non_refreshable_expiry_policy(self, name, token_detail, remaining_seconds, expiry_known, logger):
+        if self._has_refresh_token(token_detail) or not expiry_known or remaining_seconds > 0:
+            return None
+        return self._delete_token_with_reason(name, "Token 已过期且无 Refresh Token，准备删除", logger)
 
     def _handle_non_200_status(self, status, resp_data, logger):
         detail = resp_data.get("brief", "") if isinstance(resp_data, dict) else str(resp_data)
@@ -180,7 +191,7 @@ class CPACodexKeeper:
         logger.log("OK", f"存活 | Plan: {plan} | {quota_info}", indent=1)
         return primary_pct, secondary_pct
 
-    def _apply_quota_policy(self, name, disabled, primary_pct, secondary_pct, logger):
+    def _apply_quota_policy(self, name, disabled, primary_pct, secondary_pct, logger, *, has_refresh_token=True):
         check_pct = secondary_pct if secondary_pct is not None else primary_pct
         check_label = "周" if secondary_pct is not None else "5h"
 
@@ -193,10 +204,22 @@ class CPACodexKeeper:
                 else:
                     logger.log("ERROR", "启用失败", indent=1)
                 return
+            if not has_refresh_token:
+                return self._delete_token_with_reason(
+                    name,
+                    f"无 Refresh Token，且{check_label}额度达到 {check_pct}% >= {self.settings.quota_threshold}%，准备删除",
+                    logger,
+                )
             logger.log("INFO", f"已禁用，{check_label}额度 {check_pct}% >= {self.settings.quota_threshold}%，保持禁用", indent=1)
             return
 
         if check_pct >= self.settings.quota_threshold:
+            if not has_refresh_token:
+                return self._delete_token_with_reason(
+                    name,
+                    f"无 Refresh Token，且{check_label}额度达到 {check_pct}% >= {self.settings.quota_threshold}%，准备删除",
+                    logger,
+                )
             logger.log("WARN", f"{check_label}额度达到 {check_pct}% >= {self.settings.quota_threshold}%，准备禁用", indent=1)
             if self.set_disabled_status(name, disabled=True, logger=logger):
                 logger.log("DISABLE", "已禁用", indent=1)
@@ -230,7 +253,10 @@ class CPACodexKeeper:
             if not token_detail:
                 return self._skip_token("获取详情失败", logger)
 
-            disabled, remaining_seconds, remaining_str = self._log_token_details(token_detail, logger)
+            disabled, remaining_seconds, remaining_str, expiry_known = self._log_token_details(token_detail, logger)
+            cleanup_result = self._apply_non_refreshable_expiry_policy(name, token_detail, remaining_seconds, expiry_known, logger)
+            if cleanup_result:
+                return cleanup_result
             access_token = token_detail.get("access_token")
             account_id = token_detail.get("account_id")
             if not access_token:
@@ -251,7 +277,16 @@ class CPACodexKeeper:
 
             body_info = self.parse_usage_info(resp_data)
             primary_pct, secondary_pct = self._log_usage_summary(body_info, logger)
-            self._apply_quota_policy(name, disabled, primary_pct, secondary_pct, logger)
+            quota_result = self._apply_quota_policy(
+                name,
+                disabled,
+                primary_pct,
+                secondary_pct,
+                logger,
+                has_refresh_token=self._has_refresh_token(token_detail),
+            )
+            if quota_result:
+                return quota_result
             self._apply_refresh_policy(name, token_detail, remaining_seconds, remaining_str, logger)
 
             self._inc_stat("alive")

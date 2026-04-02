@@ -75,6 +75,7 @@ class MaintainerTests(unittest.TestCase):
             "email": "a@example.com",
             "disabled": False,
             "access_token": "token",
+            "refresh_token": "rt",
             "account_id": "acc",
             "expired": "2099-01-01T00:00:00Z",
         })
@@ -101,6 +102,7 @@ class MaintainerTests(unittest.TestCase):
             "email": "a@example.com",
             "disabled": False,
             "access_token": "token",
+            "refresh_token": "rt",
             "account_id": "acc",
             "expired": "2099-01-01T00:00:00Z",
         })
@@ -180,6 +182,95 @@ class MaintainerTests(unittest.TestCase):
         self.assertEqual(result, "alive")
         self.maintainer.upload_updated_token.assert_called_once()
         self.assertEqual(self.maintainer.stats.refreshed, 1)
+
+    def test_process_token_deletes_expired_token_without_refresh_token(self):
+        self.maintainer.get_token_detail = Mock(return_value={
+            "email": "a@example.com",
+            "disabled": False,
+            "access_token": "token",
+            "refresh_token": "",
+            "account_id": "acc",
+            "expired": "2000-01-01T00:00:00Z",
+        })
+        self.maintainer.delete_token = Mock(return_value=True)
+        self.maintainer.check_token_live = Mock(return_value=(200, {
+            "json": {
+                "plan_type": "free",
+                "rate_limit": {
+                    "primary_window": {"used_percent": 0, "limit_window_seconds": 604800},
+                    "secondary_window": None,
+                },
+                "credits": {"has_credits": False},
+            }
+        }))
+
+        result = self.maintainer.process_token({"name": "t-expired"}, 1, 1)
+
+        self.assertEqual(result, "dead")
+        self.assertEqual(self.maintainer.stats.dead, 1)
+        self.maintainer.check_token_live.assert_not_called()
+        args, kwargs = self.maintainer.delete_token.call_args
+        self.assertEqual(args, ("t-expired",))
+        self.assertIn("logger", kwargs)
+
+    def test_process_token_deletes_quota_exhausted_token_without_refresh_token(self):
+        self.maintainer.get_token_detail = Mock(return_value={
+            "email": "a@example.com",
+            "disabled": False,
+            "access_token": "token",
+            "refresh_token": "",
+            "account_id": "acc",
+            "expired": "2099-01-01T00:00:00Z",
+        })
+        self.maintainer.check_token_live = Mock(return_value=(200, {
+            "json": {
+                "plan_type": "free",
+                "rate_limit": {
+                    "primary_window": {"used_percent": 100, "limit_window_seconds": 604800},
+                    "secondary_window": None,
+                },
+                "credits": {"has_credits": False},
+            }
+        }))
+        self.maintainer.delete_token = Mock(return_value=True)
+        self.maintainer.set_disabled_status = Mock(return_value=True)
+
+        result = self.maintainer.process_token({"name": "t-no-rt"}, 1, 1)
+
+        self.assertEqual(result, "dead")
+        self.assertEqual(self.maintainer.stats.dead, 1)
+        self.maintainer.set_disabled_status.assert_not_called()
+        args, kwargs = self.maintainer.delete_token.call_args
+        self.assertEqual(args, ("t-no-rt",))
+        self.assertIn("logger", kwargs)
+
+    def test_process_token_keeps_non_refreshable_token_when_expiry_is_unknown(self):
+        self.maintainer.get_token_detail = Mock(return_value={
+            "email": "a@example.com",
+            "disabled": False,
+            "access_token": "not-a-jwt",
+            "refresh_token": "",
+            "account_id": "acc",
+            "expired": "",
+        })
+        self.maintainer.check_token_live = Mock(return_value=(200, {
+            "json": {
+                "plan_type": "free",
+                "rate_limit": {
+                    "primary_window": {"used_percent": 0, "limit_window_seconds": 604800},
+                    "secondary_window": None,
+                },
+                "credits": {"has_credits": False},
+            }
+        }))
+        self.maintainer.delete_token = Mock(return_value=True)
+
+        result = self.maintainer.process_token({"name": "t-unknown-expiry"}, 1, 1)
+
+        self.assertEqual(result, "alive")
+        self.assertEqual(self.maintainer.stats.alive, 1)
+        self.maintainer.delete_token.assert_not_called()
+        self.maintainer.check_token_live.assert_called_once()
 
     @patch("src.maintainer.random.shuffle", side_effect=lambda seq: None)
     @patch("src.maintainer.as_completed")
