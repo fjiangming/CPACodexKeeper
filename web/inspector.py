@@ -4,7 +4,7 @@
 """
 
 import asyncio
-import json
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -13,6 +13,9 @@ from pathlib import Path
 from .cpa_api import CPAApi
 from .openai_api import OpenAIApi
 from .store import DataStore
+
+
+TOKEN_HEADER_RE = re.compile(r"^\[(\d+)/(\d+)\]\s+(.+?)\s*$")
 
 
 def _format_seconds(seconds: float) -> str:
@@ -88,6 +91,78 @@ async def _gather_limited(coroutines: list, limit: int) -> list:
             return await coro
 
     return await asyncio.gather(*(guarded(coro) for coro in coroutines), return_exceptions=True)
+
+
+def _empty_action_summary() -> dict[str, list[dict[str, str]]]:
+    return {
+        "deleted": [],
+        "disabled": [],
+        "enabled": [],
+        "refreshed": [],
+        "planned_deleted": [],
+        "planned_disabled": [],
+        "planned_enabled": [],
+        "planned_refreshed": [],
+    }
+
+
+def _add_action(actions: dict[str, list[dict[str, str]]], key: str, name: str, email: str = "") -> None:
+    if not name:
+        return
+    item = {"name": name, "email": email or ""}
+    if item not in actions[key]:
+        actions[key].append(item)
+
+
+def extract_inspection_actions(output: str, *, dry_run: bool = False) -> dict[str, list[dict[str, str]]]:
+    """Extract token actions from CLI inspection output."""
+    actions = _empty_action_summary()
+    current_name = ""
+    current_email = ""
+
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        header_match = TOKEN_HEADER_RE.match(line)
+        if header_match:
+            current_name = header_match.group(3).strip()
+            current_email = ""
+            continue
+
+        if line.startswith("[*] Email:"):
+            current_email = line.split("Email:", 1)[1].strip()
+            continue
+
+        if "[DRY-RUN]" in line:
+            if "将删除:" in line:
+                name = line.rsplit(":", 1)[-1].strip() or current_name
+                _add_action(actions, "planned_deleted", name, current_email)
+            elif "将禁用:" in line:
+                name = line.rsplit(":", 1)[-1].strip() or current_name
+                _add_action(actions, "planned_disabled", name, current_email)
+            elif "将启用:" in line:
+                name = line.rsplit(":", 1)[-1].strip() or current_name
+                _add_action(actions, "planned_enabled", name, current_email)
+            elif "将上传更新" in line:
+                name = line.rsplit(" ", 1)[-1].strip() or current_name
+                _add_action(actions, "planned_refreshed", name, current_email)
+            continue
+
+        if dry_run:
+            continue
+
+        if line.startswith("[DELETE]"):
+            _add_action(actions, "deleted", current_name, current_email)
+        elif line.startswith("[DISABLED]") and "刷新后保持禁用" not in line:
+            _add_action(actions, "disabled", current_name, current_email)
+        elif line.startswith("[ENABLED]"):
+            _add_action(actions, "enabled", current_name, current_email)
+        elif line.startswith("[REFRESH]"):
+            _add_action(actions, "refreshed", current_name, current_email)
+
+    return actions
 
 
 class Inspector:
@@ -297,6 +372,7 @@ class Inspector:
                 )
                 stdout, _ = await proc.communicate()
                 output = stdout.decode("utf-8", errors="replace") if stdout else ""
+                actions = extract_inspection_actions(output, dry_run=dry_run)
 
                 # 记录历史
                 store.add_history({
@@ -306,6 +382,10 @@ class Inspector:
                     "stats": store.get_stats(),
                     "dry_run": dry_run,
                     "source": source,
+                    "actions": actions,
+                    "action_counts": {key: len(value) for key, value in actions.items()},
+                    "deleted_tokens": actions["planned_deleted"] if dry_run else actions["deleted"],
+                    "disabled_tokens": actions["planned_disabled"] if dry_run else actions["disabled"],
                 })
 
                 store.set_inspect_done(output)

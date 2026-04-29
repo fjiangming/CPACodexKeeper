@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from web.inspector import Inspector
+from web.inspector import Inspector, extract_inspection_actions
 from web.store import DataStore
 
 
@@ -71,3 +71,36 @@ class WebInspectorTests(unittest.IsolatedAsyncioTestCase):
         )
         openai_cls.assert_called_once_with(proxy=None, timeout=17, max_retries=4)
 
+    async def test_extracts_actual_deleted_and_disabled_tokens(self):
+        output = "\n".join([
+            "[1/2] token-delete",
+            "    [*] Email: delete@example.com",
+            "    [DELETE] 已删除",
+            "[2/2] token-disable",
+            "    [*] Email: disable@example.com",
+            "    [DISABLED] 已禁用",
+        ])
+
+        actions = extract_inspection_actions(output, dry_run=False)
+
+        self.assertEqual(actions["deleted"], [{"name": "token-delete", "email": "delete@example.com"}])
+        self.assertEqual(actions["disabled"], [{"name": "token-disable", "email": "disable@example.com"}])
+
+    async def test_extracts_dry_run_planned_actions_without_counting_success_lines(self):
+        output = "\n".join([
+            "[1/2] token-delete",
+            "    [*] Email: delete@example.com",
+            "    [DRY-RUN] 将删除: token-delete",
+            "    [DELETE] 已删除",
+            "[2/2] token-disable",
+            "    [*] Email: disable@example.com",
+            "    [DRY-RUN] 将禁用: token-disable",
+            "    [DISABLED] 已禁用",
+        ])
+
+        actions = extract_inspection_actions(output, dry_run=True)
+
+        self.assertEqual(actions["deleted"], [])
+        self.assertEqual(actions["disabled"], [])
+        self.assertEqual(actions["planned_deleted"], [{"name": "token-delete", "email": "delete@example.com"}])
+        self.assertEqual(actions["planned_disabled"], [{"name": "token-disable", "email": "disable@example.com"}])

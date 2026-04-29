@@ -80,6 +80,18 @@ tr:hover td{background:rgba(108,92,231,0.05)}
 .page-btn{height:32px;min-width:32px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text);cursor:pointer}
 .page-btn:hover:not(:disabled){border-color:var(--accent);background:rgba(108,92,231,0.15)}
 .page-btn:disabled{opacity:.45;cursor:not-allowed}
+.mini-btn{height:28px;padding:0 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);color:var(--text);font-size:12px;cursor:pointer}
+.mini-btn:hover{border-color:var(--accent);background:rgba(108,92,231,0.15)}
+.history-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.history-action-chip{font-size:11px;padding:2px 7px;border-radius:4px;background:var(--surface2);color:var(--text2)}
+.history-action-chip.danger{background:rgba(255,107,107,0.14);color:var(--red)}
+.history-action-chip.warn{background:rgba(253,203,110,0.14);color:var(--yellow)}
+.history-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.history-detail-block{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px}
+.history-detail-block h3{font-size:13px;margin-bottom:10px}
+.history-detail-block ul{list-style:none;display:flex;flex-direction:column;gap:8px}
+.history-detail-block li{font-size:12px;color:var(--text);line-height:1.4}
+.history-detail-empty{font-size:12px;color:var(--text2)}
 
 /* Chart */
 .chart-container{padding:20px;height:280px}
@@ -135,7 +147,7 @@ tr:hover td{background:rgba(108,92,231,0.05)}
 
 /* Responsive */
 @media(max-width:980px){.token-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.token-filters .filter-clear{grid-column:span 2}}
-@media(max-width:768px){.stats-grid{grid-template-columns:repeat(3,1fr)}.container{padding:12px}.stat-card .value{font-size:24px}.pagination-bar{align-items:flex-end;flex-direction:column}.pager{width:100%;flex-wrap:wrap}.token-filters{grid-template-columns:1fr}.token-filters .filter-clear{grid-column:auto}}
+@media(max-width:768px){.stats-grid{grid-template-columns:repeat(3,1fr)}.container{padding:12px}.stat-card .value{font-size:24px}.pagination-bar{align-items:flex-end;flex-direction:column}.pager{width:100%;flex-wrap:wrap}.token-filters{grid-template-columns:1fr}.token-filters .filter-clear{grid-column:auto}.history-detail-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -230,6 +242,19 @@ tr:hover td{background:rgba(108,92,231,0.05)}
     <div class="empty" id="chartEmpty" style="display:none"><div class="icon">📊</div><div>暂无巡检历史</div></div>
   </div>
 
+  <div class="section">
+    <div class="section-header"><h2>巡检历史明细</h2></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>时间</th><th>来源</th><th>模式</th><th>退出码</th><th>删除账号</th><th>禁用账号</th><th>其他动作</th><th>操作</th>
+        </tr></thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="historyEmpty" style="display:none"><div class="icon">📋</div><div>暂无巡检历史</div></div>
+  </div>
+
   <div class="info-bar"><span id="daemonInfo">后台巡检: -</span><span id="nextRefresh"></span></div>
 </div>
 
@@ -248,11 +273,20 @@ tr:hover td{background:rgba(108,92,231,0.05)}
   </div>
 </div>
 
+<!-- History Detail Modal -->
+<div class="modal-overlay" id="historyDetailModal">
+  <div class="modal">
+    <div class="modal-header"><h2 id="historyDetailTitle">巡检动作详情</h2><button class="modal-close" onclick="closeHistoryDetail()">✕</button></div>
+    <div class="modal-body" id="historyDetailBody"></div>
+  </div>
+</div>
+
 <script>
 const API = '';
 let chart = null;
 let autoTimer = null;
 let countdown = 30;
+let historyRecords = [];
 
 // ---- API helpers ----
 async function api(path, opts) {
@@ -448,10 +482,105 @@ async function loadTokens() {
 }
 
 // ---- History Chart ----
+function getActionItems(record, key) {
+  const actions = record.actions || {};
+  if (Array.isArray(actions[key])) return actions[key];
+  if (key === 'deleted' && Array.isArray(record.deleted_tokens)) return record.deleted_tokens;
+  if (key === 'disabled' && Array.isArray(record.disabled_tokens)) return record.disabled_tokens;
+  return [];
+}
+
+function getDisplayActionItems(record, action) {
+  if (record.dry_run) {
+    return getActionItems(record, `planned_${action}`);
+  }
+  return getActionItems(record, action);
+}
+
+function formatActionItem(item) {
+  if (!item) return '-';
+  if (typeof item === 'string') return escapeHtml(item);
+  const email = item.email ? ` <span style="color:var(--text2)">(${escapeHtml(item.email)})</span>` : '';
+  return `${escapeHtml(item.name || '-')}${email}`;
+}
+
+function renderActionCount(record, action, dangerClass) {
+  const items = getDisplayActionItems(record, action);
+  return `<span class="history-action-chip ${dangerClass || ''}">${items.length}</span>`;
+}
+
+function renderHistoryTable(data) {
+  historyRecords = Array.isArray(data) ? data : [];
+  const tbody = document.getElementById('historyBody');
+  const empty = document.getElementById('historyEmpty');
+  if (!tbody || !empty) return;
+
+  if (historyRecords.length === 0) {
+    tbody.innerHTML = '';
+    empty.style.display = '';
+    return;
+  }
+
+  empty.style.display = 'none';
+  tbody.innerHTML = historyRecords.slice().reverse().map((record, reversedIndex) => {
+    const index = historyRecords.length - 1 - reversedIndex;
+    const deleted = getDisplayActionItems(record, 'deleted').length;
+    const disabled = getDisplayActionItems(record, 'disabled').length;
+    const enabled = getDisplayActionItems(record, 'enabled').length;
+    const refreshed = getDisplayActionItems(record, 'refreshed').length;
+    return `<tr>
+      <td>${escapeHtml(record.timestamp || '-')}</td>
+      <td>${escapeHtml(record.source === 'daemon' ? '后台' : '手动')}</td>
+      <td>${record.dry_run ? '<span class="tag yes">演练</span>' : '<span class="tag no">实际</span>'}</td>
+      <td>${escapeHtml(record.exit_code ?? '-')}</td>
+      <td>${renderActionCount(record, 'deleted', 'danger')}</td>
+      <td>${renderActionCount(record, 'disabled', 'warn')}</td>
+      <td><div class="history-actions"><span class="history-action-chip">启用 ${enabled}</span><span class="history-action-chip">刷新 ${refreshed}</span></div></td>
+      <td><button class="mini-btn" onclick="openHistoryDetail(${index})" ${deleted + disabled + enabled + refreshed === 0 ? '' : ''}>查看</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderActionBlock(title, items) {
+  const content = items.length
+    ? `<ul>${items.map(item => `<li>${formatActionItem(item)}</li>`).join('')}</ul>`
+    : '<div class="history-detail-empty">无</div>';
+  return `<div class="history-detail-block"><h3>${escapeHtml(title)}</h3>${content}</div>`;
+}
+
+function openHistoryDetail(index) {
+  const record = historyRecords[index];
+  if (!record) return;
+  const modal = document.getElementById('historyDetailModal');
+  const title = document.getElementById('historyDetailTitle');
+  const body = document.getElementById('historyDetailBody');
+  const prefix = record.dry_run ? '拟' : '已';
+  title.textContent = `巡检动作详情 · ${record.timestamp || '-'}`;
+  body.innerHTML = `
+    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+      来源：${escapeHtml(record.source === 'daemon' ? '后台定时' : '手动触发')} ·
+      模式：${record.dry_run ? '演练' : '实际'} ·
+      退出码：${escapeHtml(record.exit_code ?? '-')} ·
+      输出行数：${escapeHtml(record.output_lines ?? '-')}
+    </div>
+    <div class="history-detail-grid">
+      ${renderActionBlock(`${prefix}删除账号`, getDisplayActionItems(record, 'deleted'))}
+      ${renderActionBlock(`${prefix}禁用账号`, getDisplayActionItems(record, 'disabled'))}
+      ${renderActionBlock(`${prefix}启用账号`, getDisplayActionItems(record, 'enabled'))}
+      ${renderActionBlock(`${prefix}刷新账号`, getDisplayActionItems(record, 'refreshed'))}
+    </div>`;
+  modal.classList.add('open');
+}
+
+function closeHistoryDetail() {
+  document.getElementById('historyDetailModal').classList.remove('open');
+}
+
 async function loadHistory() {
   const data = await api('/api/history');
   const ce = document.getElementById('chartEmpty');
   const cc = document.querySelector('.chart-container');
+  renderHistoryTable(data || []);
   if (!data || data.length === 0) { ce.style.display = ''; cc.style.display = 'none'; return; }
   ce.style.display = 'none'; cc.style.display = '';
   const labels = data.map(h => h.timestamp?.split(' ')[1] || '');
@@ -567,8 +696,13 @@ function startAutoRefresh() {
   }, 1000);
 }
 
-// Close modal only via X button, ESC key
-document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeSettings(); });
+// Close modals via X button or ESC key
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    closeSettings();
+    closeHistoryDetail();
+  }
+});
 
 // Start
 startAutoRefresh();
