@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CPACodexKeeper Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0f1117;--surface:#1a1d27;--surface2:#232734;--border:#2d3348;--text:#e4e6ed;--text2:#8b8fa3;--accent:#6c5ce7;--accent2:#a29bfe;--green:#00b894;--yellow:#fdcb6e;--red:#ff6b6b;--blue:#74b9ff;--orange:#e17055}
+body{font-family:'Inter','Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+a{color:var(--accent2);text-decoration:none}
+
+/* Header */
+.header{display:flex;align-items:center;justify-content:space-between;padding:16px 28px;background:var(--surface);border-bottom:1px solid var(--border)}
+.header h1{font-size:20px;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.header-right{display:flex;align-items:center;gap:12px}
+.status-badge{font-size:12px;padding:4px 12px;border-radius:20px;background:var(--surface2);border:1px solid var(--border)}
+.status-badge.running{background:rgba(108,92,231,0.2);border-color:var(--accent);color:var(--accent2);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+.btn{padding:8px 16px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text);cursor:pointer;font-size:13px;transition:all .2s;display:flex;align-items:center;gap:6px}
+.btn:hover{border-color:var(--accent);background:rgba(108,92,231,0.15)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:var(--accent2)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn .spin{animation:spin 1s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Layout */
+.container{max-width:1400px;margin:0 auto;padding:24px}
+
+/* Stats Cards */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;transition:transform .2s,border-color .2s}
+.stat-card:hover{transform:translateY(-2px);border-color:var(--accent)}
+.stat-card .label{font-size:12px;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px}
+.stat-card .value{font-size:32px;font-weight:700}
+.stat-card.total .value{color:var(--blue)}
+.stat-card.alive .value{color:var(--green)}
+.stat-card.dead .value{color:var(--red)}
+.stat-card.disabled .value{color:var(--yellow)}
+.stat-card.quota .value{color:var(--orange)}
+.stat-card.refresh .value{color:var(--accent2)}
+
+/* Section */
+.section{background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:24px;overflow:hidden}
+.section-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)}
+.section-header h2{font-size:15px;font-weight:600}
+.section-actions{display:flex;gap:8px}
+.dry-run-option{display:flex;align-items:center;gap:6px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer}
+.dry-run-option input{accent-color:var(--accent)}
+
+/* Table */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:10px 14px;color:var(--text2);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.5px;background:var(--surface2);white-space:nowrap}
+td{padding:10px 14px;border-top:1px solid var(--border);white-space:nowrap}
+tr:hover td{background:rgba(108,92,231,0.05)}
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.status-dot.alive{background:var(--green)}
+.status-dot.disabled{background:var(--yellow)}
+.status-dot.dead{background:var(--red)}
+.status-dot.error{background:var(--text2)}
+.status-dot.quota_full{background:var(--orange)}
+.pct-bar{display:inline-flex;align-items:center;gap:6px;min-width:100px}
+.pct-bar-bg{flex:1;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;min-width:60px}
+.pct-bar-fill{height:100%;border-radius:3px;transition:width .3s}
+.tag{font-size:11px;padding:2px 8px;border-radius:4px;background:var(--surface2)}
+.tag.yes{background:rgba(0,184,148,0.15);color:var(--green)}
+.tag.no{background:rgba(139,143,163,0.15);color:var(--text2)}
+
+/* Chart */
+.chart-container{padding:20px;height:280px}
+
+/* Modal / Settings */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;justify-content:center;align-items:flex-start;padding-top:40px;overflow-y:auto}
+.modal-overlay.open{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;width:560px;max-width:95vw;max-height:85vh;overflow-y:auto;animation:slideDown .25s ease;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.modal::-webkit-scrollbar{width:6px}
+.modal::-webkit-scrollbar-track{background:transparent;border-radius:3px}
+.modal::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.modal::-webkit-scrollbar-thumb:hover{background:var(--text2)}
+@keyframes slideDown{from{opacity:0;transform:translateY(-20px)}to{opacity:1;transform:translateY(0)}}
+.modal-header{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:1}
+.modal-header h2{font-size:17px}
+.modal-close{background:none;border:none;color:var(--text2);font-size:22px;cursor:pointer;padding:4px 8px}
+.modal-close:hover{color:var(--text)}
+.modal-body{padding:24px}
+.form-group{margin-bottom:20px}
+.form-group label{display:block;font-size:13px;font-weight:600;margin-bottom:4px}
+.form-group .env-key{font-size:11px;color:var(--text2);font-family:monospace;margin-bottom:6px}
+.form-group .hint{font-size:11px;color:var(--text2);margin-top:4px}
+.form-group input[type=text],.form-group input[type=password],.form-group input[type=number]{width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none;transition:border-color .2s}
+.form-group input:focus{border-color:var(--accent)}
+.input-wrap{position:relative}
+.input-wrap .toggle-vis{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text2);cursor:pointer;font-size:16px}
+.toggle-row{display:flex;align-items:center;gap:12px}
+.toggle{width:44px;height:24px;background:var(--border);border-radius:12px;position:relative;cursor:pointer;transition:background .2s}
+.toggle.on{background:var(--accent)}
+.toggle::after{content:'';position:absolute;width:18px;height:18px;background:#fff;border-radius:50%;top:3px;left:3px;transition:transform .2s}
+.toggle.on::after{transform:translateX(20px)}
+.toggle-label{font-size:13px;color:var(--text2)}
+.range-row{display:flex;align-items:center;gap:12px}
+.range-row input[type=range]{flex:1;accent-color:var(--accent)}
+.range-row .range-val{min-width:40px;text-align:right;font-weight:600;font-size:14px}
+.modal-footer{padding:16px 24px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;bottom:0;background:var(--surface)}
+.modal-footer .warn{font-size:11px;color:var(--yellow)}
+.save-msg{font-size:12px;margin-left:12px;transition:opacity .3s}
+.save-msg.ok{color:var(--green)}
+.save-msg.err{color:var(--red)}
+
+/* Info bar */
+.info-bar{display:flex;align-items:center;justify-content:space-between;padding:8px 20px;font-size:12px;color:var(--text2)}
+
+/* Empty */
+.empty{text-align:center;padding:60px 20px;color:var(--text2)}
+.empty .icon{font-size:48px;margin-bottom:12px}
+
+/* Inspect output */
+.output-section{display:none}
+.output-section.open{display:block}
+.output-pre{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px;font-family:'Cascadia Code','Fira Code',monospace;font-size:12px;line-height:1.6;max-height:400px;overflow:auto;white-space:pre-wrap;word-break:break-all;color:var(--text2);margin:0 20px 20px}
+
+/* Responsive */
+@media(max-width:768px){.stats-grid{grid-template-columns:repeat(3,1fr)}.container{padding:12px}.stat-card .value{font-size:24px}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>⚡ CPACodexKeeper</h1>
+  <div class="header-right">
+    <div id="statusBadge" class="status-badge">空闲</div>
+    <span id="lastUpdate" style="font-size:12px;color:var(--text2)"></span>
+    <button class="btn" onclick="openSettings()">⚙ 配置</button>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Stats -->
+  <div class="stats-grid">
+    <div class="stat-card total"><div class="label">总计</div><div class="value" id="sTotal">-</div></div>
+    <div class="stat-card alive"><div class="label">存活</div><div class="value" id="sAlive">-</div></div>
+    <div class="stat-card dead"><div class="label">失效</div><div class="value" id="sDead">-</div></div>
+    <div class="stat-card disabled"><div class="label">已禁用</div><div class="value" id="sDisabled">-</div></div>
+    <div class="stat-card quota"><div class="label">额度耗尽</div><div class="value" id="sQuota">-</div></div>
+    <div class="stat-card refresh"><div class="label">有 Refresh Token</div><div class="value" id="sRefresh">-</div></div>
+  </div>
+
+  <!-- Token Table -->
+  <div class="section">
+    <div class="section-header">
+      <h2>Token 列表</h2>
+      <div class="section-actions">
+        <button class="btn" id="btnRefresh" onclick="doRefresh()">🔄 刷新数据</button>
+        <label class="dry-run-option"><input type="checkbox" id="dryRunInspect"> 演练模式</label>
+        <button class="btn primary" id="btnInspect" onclick="doInspect()">▶ 触发巡检</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>名称</th><th>邮箱</th><th>状态</th><th>主窗口额度</th><th>次窗口额度</th><th>Plan</th><th>Credits</th><th>过期时间</th><th>剩余有效期</th><th>RT</th>
+        </tr></thead>
+        <tbody id="tokenBody"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="tokenEmpty" style="display:none"><div class="icon">📭</div><div>暂无 Token 数据，请先点击"刷新数据"</div></div>
+  </div>
+
+  <!-- Inspect Output -->
+  <div class="section output-section" id="outputSection">
+    <div class="section-header"><h2>巡检输出</h2><button class="btn" onclick="document.getElementById('outputSection').classList.remove('open')">✕ 关闭</button></div>
+    <pre class="output-pre" id="outputPre"></pre>
+  </div>
+
+  <!-- History Chart -->
+  <div class="section">
+    <div class="section-header"><h2>巡检历史趋势</h2></div>
+    <div class="chart-container"><canvas id="historyChart"></canvas></div>
+    <div class="empty" id="chartEmpty" style="display:none"><div class="icon">📊</div><div>暂无巡检历史</div></div>
+  </div>
+
+  <div class="info-bar"><span id="daemonInfo">后台巡检: -</span><span id="nextRefresh"></span></div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal">
+    <div class="modal-header"><h2>⚙ 配置管理</h2><button class="modal-close" onclick="closeSettings()">✕</button></div>
+    <div class="modal-body" id="settingsBody">加载中...</div>
+    <div class="modal-footer">
+      <span class="warn">⚠ 修改后需重新启动巡检服务才能生效</span>
+      <div style="display:flex;align-items:center">
+        <span id="saveMsg" class="save-msg"></span>
+        <button class="btn primary" onclick="saveSettings()">💾 保存配置</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let chart = null;
+let autoTimer = null;
+let countdown = 30;
+
+// ---- API helpers ----
+async function api(path, opts) {
+  try {
+    const r = await fetch(API + path, opts);
+    return await r.json();
+  } catch(e) { console.error(e); return null; }
+}
+
+// ---- Status ----
+async function loadStatus() {
+  const d = await api('/api/status');
+  if (!d) return;
+  const badge = document.getElementById('statusBadge');
+  if (d.is_inspecting) { badge.textContent = '巡检中...'; badge.className = 'status-badge running'; }
+  else if (d.is_refreshing) { badge.textContent = '刷新中...'; badge.className = 'status-badge running'; }
+  else { badge.textContent = '空闲'; badge.className = 'status-badge'; }
+  document.getElementById('lastUpdate').textContent = d.last_refresh_at ? '更新: ' + d.last_refresh_at : '';
+  if (d.stats) updateStats(d.stats);
+  const daemonInfo = document.getElementById('daemonInfo');
+  if (daemonInfo) {
+    const next = d.next_daemon_inspect_at ? ` · 下次: ${d.next_daemon_inspect_at}` : '';
+    daemonInfo.textContent = d.daemon_interval_seconds ? `后台巡检间隔: ${d.daemon_interval_seconds}s${next}` : '后台巡检: 未计划';
+  }
+}
+
+function updateStats(s) {
+  document.getElementById('sTotal').textContent = s.total ?? '-';
+  document.getElementById('sAlive').textContent = s.alive ?? '-';
+  document.getElementById('sDead').textContent = s.dead ?? '-';
+  document.getElementById('sDisabled').textContent = s.disabled ?? '-';
+  document.getElementById('sQuota').textContent = s.quota_full ?? '-';
+  document.getElementById('sRefresh').textContent = s.has_refresh ?? '-';
+}
+
+// ---- Tokens ----
+function pctColor(v) { if (v >= 100) return 'var(--red)'; if (v >= 80) return 'var(--orange)'; if (v >= 50) return 'var(--yellow)'; return 'var(--green)'; }
+function renderPct(v, label) {
+  if (v === null || v === undefined) return '<span style="color:var(--text2)">-</span>';
+  return `<div class="pct-bar"><div class="pct-bar-bg"><div class="pct-bar-fill" style="width:${Math.min(v,100)}%;background:${pctColor(v)}"></div></div><span style="font-size:12px;color:${pctColor(v)}">${v}%</span></div>`;
+}
+const statusLabels = { alive:'正常', disabled:'已禁用', dead:'失效', error:'异常', quota_full:'额度满' };
+
+async function loadTokens() {
+  const tokens = await api('/api/tokens');
+  const tbody = document.getElementById('tokenBody');
+  const empty = document.getElementById('tokenEmpty');
+  if (!tokens || tokens.length === 0) { tbody.innerHTML = ''; empty.style.display = ''; return; }
+  empty.style.display = 'none';
+  const order = { dead:0, error:1, quota_full:2, disabled:3, alive:4 };
+  tokens.sort((a,b) => (order[a.status]??9) - (order[b.status]??9));
+  tbody.innerHTML = tokens.map(t => `<tr>
+    <td title="${t.name}">${t.name.length > 20 ? t.name.slice(0,20)+'…' : t.name}</td>
+    <td>${t.email || '-'}</td>
+    <td><span class="status-dot ${t.status}"></span>${statusLabels[t.status] || t.status}</td>
+    <td>${renderPct(t.primary_pct, t.primary_label)}</td>
+    <td>${renderPct(t.secondary_pct, t.secondary_label)}</td>
+    <td>${t.plan_type || '-'}</td>
+    <td>${t.has_credits ? '<span class="tag yes">有</span>' : '<span class="tag no">无</span>'}</td>
+    <td style="font-size:12px">${t.expired || '-'}</td>
+    <td>${t.remaining || '-'}</td>
+    <td>${t.has_refresh_token ? '<span class="tag yes">有</span>' : '<span class="tag no">无</span>'}</td>
+  </tr>`).join('');
+}
+
+// ---- History Chart ----
+async function loadHistory() {
+  const data = await api('/api/history');
+  const ce = document.getElementById('chartEmpty');
+  const cc = document.querySelector('.chart-container');
+  if (!data || data.length === 0) { ce.style.display = ''; cc.style.display = 'none'; return; }
+  ce.style.display = 'none'; cc.style.display = '';
+  const labels = data.map(h => h.timestamp?.split(' ')[1] || '');
+  const ds = (label, key, color) => ({ label, data: data.map(h => h.stats?.[key] ?? 0), borderColor: color, backgroundColor: color + '20', tension: .3, pointRadius: 3, borderWidth: 2, fill: false });
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById('historyChart'), {
+    type: 'line',
+    data: { labels, datasets: [
+      ds('总计','total','#74b9ff'), ds('存活','alive','#00b894'),
+      ds('失效','dead','#ff6b6b'), ds('已禁用','disabled','#fdcb6e'),
+    ]},
+    options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ labels:{ color:'#8b8fa3',font:{size:11}} }}, scales:{ x:{ ticks:{color:'#8b8fa3',font:{size:10}},grid:{color:'#2d3348'} }, y:{ beginAtZero:true,ticks:{color:'#8b8fa3',stepSize:1},grid:{color:'#2d3348'}} }}
+  });
+}
+
+// ---- Actions ----
+async function doRefresh() {
+  const btn = document.getElementById('btnRefresh');
+  btn.disabled = true; btn.innerHTML = '<span class="spin">🔄</span> 刷新中...';
+  await api('/api/refresh', { method:'POST' });
+  await loadAll();
+  btn.disabled = false; btn.innerHTML = '🔄 刷新数据';
+  resetCountdown();
+}
+
+async function doInspect() {
+  const btn = document.getElementById('btnInspect');
+  const dryRun = document.getElementById('dryRunInspect')?.checked ?? false;
+  btn.disabled = true; btn.innerHTML = dryRun ? '<span class="spin">⏳</span> 演练中...' : '<span class="spin">⏳</span> 巡检中...';
+  document.getElementById('statusBadge').textContent = '巡检中...';
+  document.getElementById('statusBadge').className = 'status-badge running';
+  const r = await api('/api/inspect', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({dry_run:dryRun}) });
+  if (r && r.output) {
+    document.getElementById('outputPre').textContent = r.output;
+    document.getElementById('outputSection').classList.add('open');
+  }
+  await loadAll();
+  btn.disabled = false; btn.innerHTML = '▶ 触发巡检';
+  resetCountdown();
+}
+
+// ---- Settings ----
+let configData = [];
+async function openSettings() {
+  document.getElementById('settingsModal').classList.add('open');
+  configData = await api('/api/config') || [];
+  renderSettings();
+}
+function closeSettings() { document.getElementById('settingsModal').classList.remove('open'); }
+
+function renderSettings() {
+  const body = document.getElementById('settingsBody');
+  body.innerHTML = configData.map((c, i) => {
+    if (c.type === 'bool') {
+      const on = ['true','1','yes','on'].includes((c.value||'').toLowerCase());
+      return `<div class="form-group"><label>${c.label}</label><div class="env-key">${c.key}</div>
+        <div class="toggle-row"><div class="toggle ${on?'on':''}" data-idx="${i}" onclick="toggleBool(this,${i})"></div><span class="toggle-label">${on?'开启':'关闭'}</span></div>
+        <div class="hint">${c.description}</div></div>`;
+    }
+    if (c.key === 'CPA_QUOTA_THRESHOLD') {
+      return `<div class="form-group"><label>${c.label}</label><div class="env-key">${c.key}</div>
+        <div class="range-row"><input type="range" min="0" max="100" value="${c.value||100}" oninput="rangeChange(this,${i})"><span class="range-val" id="rv${i}">${c.value||100}</span></div>
+        <div class="hint">${c.description}</div></div>`;
+    }
+    const inputType = c.sensitive ? 'password' : (c.type==='int' ? 'number' : 'text');
+    const extra = c.sensitive ? `<div class="input-wrap"><input type="password" id="cfg${i}" value="${c.value||''}" ${c.min!==undefined?'min="'+c.min+'"':''} ${c.max!==undefined?'max="'+c.max+'"':''}><button class="toggle-vis" onclick="toggleVis(${i})">👁</button></div>` :
+      `<input type="${inputType}" id="cfg${i}" value="${c.value||''}" ${c.min!==undefined?'min="'+c.min+'"':''} ${c.max!==undefined?'max="'+c.max+'"':''}>`;
+    return `<div class="form-group"><label>${c.label}${c.required?' <span style="color:var(--red)">*</span>':''}</label><div class="env-key">${c.key}</div>${extra}<div class="hint">${c.description}</div></div>`;
+  }).join('');
+}
+
+function toggleBool(el, idx) {
+  const on = el.classList.toggle('on');
+  el.nextElementSibling.textContent = on ? '开启' : '关闭';
+  configData[idx].value = on ? 'true' : 'false';
+}
+function rangeChange(el, idx) {
+  document.getElementById('rv'+idx).textContent = el.value;
+  configData[idx].value = el.value;
+}
+function toggleVis(idx) {
+  const inp = document.getElementById('cfg'+idx);
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+async function saveSettings() {
+  const changes = {};
+  configData.forEach((c, i) => {
+    if (c.type === 'bool' || c.key === 'CPA_QUOTA_THRESHOLD') {
+      changes[c.key] = c.value;
+    } else {
+      const el = document.getElementById('cfg'+i);
+      if (el) changes[c.key] = el.value;
+    }
+  });
+  const msg = document.getElementById('saveMsg');
+  const r = await api('/api/config', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({changes}) });
+  if (r && r.ok) { msg.textContent = '✓ 已保存'; msg.className = 'save-msg ok'; }
+  else { msg.textContent = '✗ ' + (r?.errors?.join('; ') || r?.error || '保存失败'); msg.className = 'save-msg err'; }
+  setTimeout(() => { msg.textContent = ''; }, 4000);
+}
+
+// ---- Auto refresh ----
+async function loadAll() { await Promise.all([loadStatus(), loadTokens(), loadHistory()]); }
+function resetCountdown() { countdown = 30; }
+
+function startAutoRefresh() {
+  loadAll();
+  autoTimer = setInterval(async () => {
+    countdown--;
+    document.getElementById('nextRefresh').textContent = `页面数据刷新: ${countdown}s`;
+    if (countdown <= 0) { resetCountdown(); await loadAll(); }
+  }, 1000);
+}
+
+// Close modal only via X button, ESC key
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeSettings(); });
+
+// Start
+startAutoRefresh();
+</script>
+</body>
+</html>

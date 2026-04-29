@@ -1,0 +1,24 @@
+# CPACodexKeeper Web Dashboard
+# 独立的 compose 文件，和原 docker-compose.yml 互不影响
+# 使用: docker compose -f docker-compose.web.yml up -d --build
+
+services:
+  keeper-web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    container_name: keeper-web
+    restart: unless-stopped
+    ports:
+      - "${CPA_WEB_PORT:-8377}:8377"
+    volumes:
+      - keeper_web_data:/app/web/data
+      - ./.env:/app/.env
+    env_file:
+      - .env
+    environment:
+      CPA_WEB_PORT: ${CPA_WEB_PORT:-8377}
+      CPA_WEB_HOST: ${CPA_WEB_HOST:-0.0.0.0}
+
+volumes:
+  keeper_web_data:
