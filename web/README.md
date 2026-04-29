@@ -27,13 +27,12 @@ python -m web.server
 
 现在项目已配置了 **GitHub Actions 自动构建机制**。当你把代码推送到 GitHub 的 `main`（或 `master`）主分支时，系统会自动将最新的 Web 镜像构建并推送到 GitHub 官方的容器仓库 (GHCR) 中。
 
-因此，在你的生产服务器上，你**完全不需要拉取源码**，只需准备 **2 个配置文件** 即可一键启动：
+因此，在你的生产服务器上，你**完全不需要拉取源码**，只需准备 **1 个配置文件** 即可一键启动：
 
-### 1. 准备配置和编排文件
+### 1. 准备编排文件
 
-在服务器任意目录下，新建以下两个文件：
+在服务器任意目录下，新建 `docker-compose.yml`：
 
-**文件一：`docker-compose.yml`**
 ```yaml
 services:
   keeper-web:
@@ -44,8 +43,8 @@ services:
     ports:
       - "8377:8377"
     volumes:
+      # 持久化存储目录，.env 文件和运行数据都会自动保存在这里
       - keeper_web_data:/app/web/data
-      - ./.env:/app/.env
     environment:
       CPA_WEB_PORT: 8377
       CPA_WEB_HOST: 0.0.0.0
@@ -54,22 +53,15 @@ volumes:
   keeper_web_data:
 ```
 
-**文件二：`.env`**
-（与 `docker-compose.yml` 放在同一目录下）
-```env
-CPA_ENDPOINT=https://your-cpa-endpoint
-CPA_TOKEN=your-cpa-token
-# ...根据实际情况填写其他配置项
-```
-
 ### 2. 一键拉取并启动
 
-在服务器上这两个文件所在的目录执行：
+在 `docker-compose.yml` 所在的目录执行：
 
 ```bash
 # 拉取最新镜像并后台启动
 docker compose up -d
 ```
 
-启动完成后，通过浏览器访问 `http://服务器IP:8377` 即可使用 Web 仪表盘。
-后续如果在 Web 面板里修改了配置，直接点击面板上的“触发巡检”即可立刻应用最新配置进行检查。
+启动后，系统会自动在持久化数据卷中为你生成一个默认的 `.env` 配置文件（这样以后哪怕你重新拉取镜像、删除重建容器，配置**都不会**丢失被清空）。
+
+启动完成后，通过浏览器访问 `http://服务器IP:8377`，在页面右上角的“配置管理”中填入你的真实 CPA 接口地址和 Token 并保存即可！

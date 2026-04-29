@@ -18,4 +18,7 @@ COPY web/ ./web/
 COPY src/ ./src/
 COPY main.py ./
 
+# 配置 Entrypoint
+RUN chmod +x web/docker-entrypoint.sh
+ENTRYPOINT ["web/docker-entrypoint.sh"]
 CMD ["python", "-m", "web.server"]

@@ -13,9 +13,6 @@ services:
       - "${CPA_WEB_PORT:-8377}:8377"
     volumes:
       - keeper_web_data:/app/web/data
-      - ./.env:/app/.env
-    env_file:
-      - .env
     environment:
       CPA_WEB_PORT: ${CPA_WEB_PORT:-8377}
       CPA_WEB_HOST: ${CPA_WEB_HOST:-0.0.0.0}
