@@ -28,11 +28,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Lowercase repository name
+        id: repo_name
+        run: echo "image_name=${GITHUB_REPOSITORY,,}-web" >> $GITHUB_OUTPUT
+
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}-web
+          images: ghcr.io/${{ steps.repo_name.outputs.image_name }}
 
       - name: Build and push Web Image
         uses: docker/build-push-action@v5
