@@ -51,6 +51,11 @@ a{color:var(--accent2);text-decoration:none}
 .dry-run-option input{accent-color:var(--accent)}
 
 /* Table */
+.token-filters{display:grid;grid-template-columns:repeat(6,minmax(130px,1fr)) auto;gap:10px;padding:14px 20px;border-bottom:1px solid var(--border);background:rgba(35,39,52,.45)}
+.token-filters label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--text2)}
+.token-filters input,.token-filters select,.page-size select{width:100%;height:34px;padding:0 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;outline:none}
+.token-filters input:focus,.token-filters select:focus,.page-size select:focus{border-color:var(--accent)}
+.token-filters .filter-clear{align-self:end;height:34px;padding:0 12px}
 .table-wrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;padding:10px 14px;color:var(--text2);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.5px;background:var(--surface2);white-space:nowrap}
@@ -68,6 +73,13 @@ tr:hover td{background:rgba(108,92,231,0.05)}
 .tag{font-size:11px;padding:2px 8px;border-radius:4px;background:var(--surface2)}
 .tag.yes{background:rgba(0,184,148,0.15);color:var(--green)}
 .tag.no{background:rgba(139,143,163,0.15);color:var(--text2)}
+.pagination-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px;border-top:1px solid var(--border);font-size:12px;color:var(--text2)}
+.pager{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.page-size{display:flex;align-items:center;gap:6px}
+.page-size select{width:74px}
+.page-btn{height:32px;min-width:32px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text);cursor:pointer}
+.page-btn:hover:not(:disabled){border-color:var(--accent);background:rgba(108,92,231,0.15)}
+.page-btn:disabled{opacity:.45;cursor:not-allowed}
 
 /* Chart */
 .chart-container{padding:20px;height:280px}
@@ -122,7 +134,8 @@ tr:hover td{background:rgba(108,92,231,0.05)}
 .output-pre{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px;font-family:'Cascadia Code','Fira Code',monospace;font-size:12px;line-height:1.6;max-height:400px;overflow:auto;white-space:pre-wrap;word-break:break-all;color:var(--text2);margin:0 20px 20px}
 
 /* Responsive */
-@media(max-width:768px){.stats-grid{grid-template-columns:repeat(3,1fr)}.container{padding:12px}.stat-card .value{font-size:24px}}
+@media(max-width:980px){.token-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.token-filters .filter-clear{grid-column:span 2}}
+@media(max-width:768px){.stats-grid{grid-template-columns:repeat(3,1fr)}.container{padding:12px}.stat-card .value{font-size:24px}.pagination-bar{align-items:flex-end;flex-direction:column}.pager{width:100%;flex-wrap:wrap}.token-filters{grid-template-columns:1fr}.token-filters .filter-clear{grid-column:auto}}
 </style>
 </head>
 <body>
@@ -157,15 +170,51 @@ tr:hover td{background:rgba(108,92,231,0.05)}
         <button class="btn primary" id="btnInspect" onclick="doInspect()">▶ 触发巡检</button>
       </div>
     </div>
+    <div class="token-filters">
+      <label>名称<input id="filterName" type="text" placeholder="按名称查询" oninput="setTokenFilter('name', this.value)"></label>
+      <label>邮箱<input id="filterEmail" type="text" placeholder="按邮箱查询" oninput="setTokenFilter('email', this.value)"></label>
+      <label>状态<select id="filterStatus" onchange="setTokenFilter('status', this.value)">
+        <option value="">全部状态</option>
+        <option value="alive">正常</option>
+        <option value="disabled">已禁用</option>
+        <option value="quota_full">额度满</option>
+        <option value="dead">失效</option>
+        <option value="error">异常</option>
+      </select></label>
+      <label>Plan<input id="filterPlan" type="text" placeholder="按 Plan 查询" oninput="setTokenFilter('plan', this.value)"></label>
+      <label>过期时间<input id="filterExpired" type="text" placeholder="YYYY-MM-DD" oninput="setTokenFilter('expired', this.value)"></label>
+      <label>RT<select id="filterRt" onchange="setTokenFilter('rt', this.value)">
+        <option value="">全部 RT</option>
+        <option value="yes">有 RT</option>
+        <option value="no">无 RT</option>
+      </select></label>
+      <button class="btn filter-clear" onclick="resetTokenFilters()">清空</button>
+    </div>
     <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>名称</th><th>邮箱</th><th>状态</th><th>主窗口额度</th><th>次窗口额度</th><th>Plan</th><th>Credits</th><th>过期时间</th><th>剩余有效期</th><th>RT</th>
+          <th>名称</th><th>邮箱</th><th>状态</th><th>主窗口已用额度</th><th>次窗口已用额度</th><th>Plan</th><th>Credits</th><th>过期时间</th><th>剩余有效期</th><th>RT</th>
         </tr></thead>
         <tbody id="tokenBody"></tbody>
       </table>
     </div>
-    <div class="empty" id="tokenEmpty" style="display:none"><div class="icon">📭</div><div>暂无 Token 数据，请先点击"刷新数据"</div></div>
+    <div class="pagination-bar" id="tokenPagination" style="display:none">
+      <span id="tokenResultSummary">-</span>
+      <div class="pager">
+        <label class="page-size">每页
+          <select id="tokenPageSize" onchange="setTokenPageSize(this.value)">
+            <option value="10">10</option>
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </label>
+        <button class="page-btn" id="tokenPrevPage" onclick="changeTokenPage(-1)">上一页</button>
+        <span id="tokenPageInfo">1 / 1</span>
+        <button class="page-btn" id="tokenNextPage" onclick="changeTokenPage(1)">下一页</button>
+      </div>
+    </div>
+    <div class="empty" id="tokenEmpty" style="display:none"><div class="icon">📭</div><div id="tokenEmptyText">暂无 Token 数据，请先点击"刷新数据"</div></div>
   </div>
 
   <!-- Inspect Output -->
@@ -240,6 +289,12 @@ function updateStats(s) {
 }
 
 // ---- Tokens ----
+const tokenState = {
+  all: [],
+  page: 1,
+  pageSize: 20,
+  filters: { name:'', email:'', status:'', plan:'', expired:'', rt:'' },
+};
 function pctColor(v) { if (v >= 100) return 'var(--red)'; if (v >= 80) return 'var(--orange)'; if (v >= 50) return 'var(--yellow)'; return 'var(--green)'; }
 function renderPct(v, label) {
   if (v === null || v === undefined) return '<span style="color:var(--text2)">-</span>';
@@ -247,26 +302,149 @@ function renderPct(v, label) {
 }
 const statusLabels = { alive:'正常', disabled:'已禁用', dead:'失效', error:'异常', quota_full:'额度满' };
 
-async function loadTokens() {
-  const tokens = await api('/api/tokens');
-  const tbody = document.getElementById('tokenBody');
-  const empty = document.getElementById('tokenEmpty');
-  if (!tokens || tokens.length === 0) { tbody.innerHTML = ''; empty.style.display = ''; return; }
-  empty.style.display = 'none';
-  const order = { dead:0, error:1, quota_full:2, disabled:3, alive:4 };
-  tokens.sort((a,b) => (order[a.status]??9) - (order[b.status]??9));
-  tbody.innerHTML = tokens.map(t => `<tr>
-    <td title="${t.name}">${t.name.length > 20 ? t.name.slice(0,20)+'…' : t.name}</td>
-    <td>${t.email || '-'}</td>
-    <td><span class="status-dot ${t.status}"></span>${statusLabels[t.status] || t.status}</td>
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+
+function formatBeijingTime(value) {
+  if (!value || value === '-' || value === '未知') return value || '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date).reduce((acc, part) => {
+    if (part.type !== 'literal') acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+}
+
+function normalizeFilter(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function tokenMatchesFilters(token) {
+  const f = tokenState.filters;
+  const expiredDisplay = formatBeijingTime(token.expired);
+  if (f.name && !normalizeFilter(token.name).includes(f.name)) return false;
+  if (f.email && !normalizeFilter(token.email).includes(f.email)) return false;
+  if (f.status && token.status !== f.status) return false;
+  if (f.plan && !normalizeFilter(token.plan_type).includes(f.plan)) return false;
+  if (f.expired && !normalizeFilter(expiredDisplay).includes(f.expired) && !normalizeFilter(token.expired).includes(f.expired)) return false;
+  if (f.rt === 'yes' && !token.has_refresh_token) return false;
+  if (f.rt === 'no' && token.has_refresh_token) return false;
+  return true;
+}
+
+function setTokenFilter(key, value) {
+  tokenState.filters[key] = normalizeFilter(value);
+  tokenState.page = 1;
+  renderTokenTable();
+}
+
+function resetTokenFilters() {
+  tokenState.filters = { name:'', email:'', status:'', plan:'', expired:'', rt:'' };
+  tokenState.page = 1;
+  ['filterName','filterEmail','filterPlan','filterExpired'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['filterStatus','filterRt'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  renderTokenTable();
+}
+
+function setTokenPageSize(value) {
+  tokenState.pageSize = Number(value) || 20;
+  tokenState.page = 1;
+  renderTokenTable();
+}
+
+function changeTokenPage(delta) {
+  tokenState.page += delta;
+  renderTokenTable();
+}
+
+function updateTokenPagination(totalFiltered, totalAll, totalPages) {
+  const pagination = document.getElementById('tokenPagination');
+  const summary = document.getElementById('tokenResultSummary');
+  const pageInfo = document.getElementById('tokenPageInfo');
+  const prev = document.getElementById('tokenPrevPage');
+  const next = document.getElementById('tokenNextPage');
+  if (!pagination || totalAll === 0) {
+    if (pagination) pagination.style.display = 'none';
+    return;
+  }
+  pagination.style.display = '';
+  const start = totalFiltered === 0 ? 0 : (tokenState.page - 1) * tokenState.pageSize + 1;
+  const end = Math.min(totalFiltered, tokenState.page * tokenState.pageSize);
+  summary.textContent = `显示 ${start}-${end} / ${totalFiltered}，全部 ${totalAll}`;
+  pageInfo.textContent = `${tokenState.page} / ${totalPages}`;
+  prev.disabled = tokenState.page <= 1;
+  next.disabled = tokenState.page >= totalPages;
+}
+
+function renderTokenRow(t) {
+  const name = String(t.name ?? '-');
+  const displayName = name.length > 20 ? `${name.slice(0,20)}…` : name;
+  const expiredDisplay = formatBeijingTime(t.expired);
+  return `<tr>
+    <td title="${escapeHtml(name)}">${escapeHtml(displayName)}</td>
+    <td>${escapeHtml(t.email || '-')}</td>
+    <td><span class="status-dot ${escapeHtml(t.status)}"></span>${escapeHtml(statusLabels[t.status] || t.status || '-')}</td>
     <td>${renderPct(t.primary_pct, t.primary_label)}</td>
     <td>${renderPct(t.secondary_pct, t.secondary_label)}</td>
-    <td>${t.plan_type || '-'}</td>
+    <td>${escapeHtml(t.plan_type || '-')}</td>
     <td>${t.has_credits ? '<span class="tag yes">有</span>' : '<span class="tag no">无</span>'}</td>
-    <td style="font-size:12px">${t.expired || '-'}</td>
-    <td>${t.remaining || '-'}</td>
+    <td style="font-size:12px">${escapeHtml(expiredDisplay || '-')}</td>
+    <td>${escapeHtml(t.remaining || '-')}</td>
     <td>${t.has_refresh_token ? '<span class="tag yes">有</span>' : '<span class="tag no">无</span>'}</td>
-  </tr>`).join('');
+  </tr>`;
+}
+
+function renderTokenTable() {
+  const tbody = document.getElementById('tokenBody');
+  const empty = document.getElementById('tokenEmpty');
+  const emptyText = document.getElementById('tokenEmptyText');
+  const pagination = document.getElementById('tokenPagination');
+  const totalAll = tokenState.all.length;
+  const order = { dead:0, error:1, quota_full:2, disabled:3, alive:4 };
+  const filtered = tokenState.all
+    .filter(tokenMatchesFilters)
+    .sort((a,b) => (order[a.status]??9) - (order[b.status]??9));
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / tokenState.pageSize));
+  tokenState.page = Math.min(Math.max(1, tokenState.page), totalPages);
+  const pageStart = (tokenState.page - 1) * tokenState.pageSize;
+  const pageItems = filtered.slice(pageStart, pageStart + tokenState.pageSize);
+
+  if (totalAll === 0) {
+    tbody.innerHTML = '';
+    emptyText.textContent = '暂无 Token 数据，请先点击"刷新数据"';
+    empty.style.display = '';
+    if (pagination) pagination.style.display = 'none';
+    return;
+  }
+  if (filtered.length === 0) {
+    tbody.innerHTML = '';
+    emptyText.textContent = '没有符合筛选条件的 Token';
+    empty.style.display = '';
+    updateTokenPagination(0, totalAll, totalPages);
+    return;
+  }
+
+  empty.style.display = 'none';
+  tbody.innerHTML = pageItems.map(renderTokenRow).join('');
+  updateTokenPagination(filtered.length, totalAll, totalPages);
+}
+
+async function loadTokens() {
+  const tokens = await api('/api/tokens');
+  tokenState.all = Array.isArray(tokens) ? tokens : [];
+  renderTokenTable();
 }
 
 // ---- History Chart ----
