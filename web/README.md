@@ -49,6 +49,7 @@ services:
       CPA_WEB_PORT: 8377
       CPA_WEB_HOST: 0.0.0.0
       CPA_WEB_PASSWORD: your-password   # leave empty to disable auth
+      TZ: Asia/Shanghai                 # 使用北京时间显示服务端本地时间
 
 volumes:
   keeper_web_data:
@@ -62,6 +63,17 @@ volumes:
 # 拉取最新镜像并后台启动
 docker compose up -d
 ```
+
+## 时间 / 时区配置
+
+如果 Web 页面中的巡检历史、日志时间、下次运行时间等显示与北京时间相差 8 小时，请在部署环境中显式设置时区：
+
+```yaml
+environment:
+  TZ: Asia/Shanghai
+```
+
+这会让容器内的本地时间使用北京时间。Token 接口返回的过期时间仍按 UTC 解析，Web 表格展示时会转换为 `Asia/Shanghai`，避免过期时间显示早 8 小时。
 
 ---
 
