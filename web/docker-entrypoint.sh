@@ -12,6 +12,7 @@ mkdir -p "$DATA_DIR"
 if [ ! -f "$ENV_FILE" ]; then
     echo "Initializing default .env in volume..."
     cat <<EOF > "$ENV_FILE"
+CPA_WEB_PASSWORD=
 CPA_ENDPOINT=https://your-cpa-endpoint
 CPA_TOKEN=your-token
 CPA_INTERVAL=1800

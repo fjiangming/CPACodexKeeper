@@ -48,6 +48,7 @@ services:
     environment:
       CPA_WEB_PORT: 8377
       CPA_WEB_HOST: 0.0.0.0
+      CPA_WEB_PASSWORD: your-password   # leave empty to disable auth
 
 volumes:
   keeper_web_data:
@@ -77,6 +78,28 @@ docker compose pull
 # 2. 重新创建并启动容器（自动使用新镜像，原有配置数据完全保留）
 docker compose up -d
 ```
+
+## 访问认证
+
+公网部署时**强烈建议**启用访问认证，防止扫描器和未授权用户访问仪表盘。
+
+### 启用方式
+
+只需设置 `CPA_WEB_PASSWORD` 即可，支持两种方式：
+
+- **环境变量**（推荐 Docker 部署）：在 `docker-compose.yml` 的 `environment` 中设置
+- **.env 文件**：在持久化数据卷中的 `.env` 文件里设置，或通过 Web 页面的「配置管理」修改
+
+设置后重启服务生效。访问任意页面都会被拦截并跳转到登录页，输入正确密码后方可进入仪表盘。
+
+### 安全机制
+
+- 未认证时所有页面和 API 均不会暴露任何业务信息
+- 登录状态通过 HMAC-SHA256 签名的 HttpOnly Cookie 维持，有效期 7 天
+- 服务重启后所有旧会话自动失效，需重新登录
+- 不设置密码（留空）则不启用认证，向后兼容本地开发场景
+
+---
 
 ## 巡检历史与动作明细
 

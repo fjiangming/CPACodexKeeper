@@ -6,8 +6,17 @@
 import os
 from pathlib import Path
 
-# 全部 11 个原始配置项的元信息
+# 全部配置项的元信息
 CONFIG_META = [
+    {
+        "key": "CPA_WEB_PASSWORD",
+        "label": "Web 访问密码",
+        "description": "设置后访问仪表盘需要输入密码，留空则不启用认证（公网部署强烈建议设置）",
+        "type": "string",
+        "required": False,
+        "default": "",
+        "sensitive": True,
+    },
     {
         "key": "CPA_ENDPOINT",
         "label": "CPA API 地址",
